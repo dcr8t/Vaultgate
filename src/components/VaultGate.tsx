@@ -13,10 +13,12 @@ import {
   RefreshCw, 
   AlertTriangle, 
   CheckCircle2,
-  Terminal,
   Zap,
   Cpu,
-  Database
+  Database,
+  FileText,
+  Sparkles,
+  UserCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import DOMPurify from 'dompurify';
@@ -34,8 +36,6 @@ const PROMPT_INJECTION_PATTERNS = [
 
 /**
  * Robust Regex Patterns for PII Detection
- * Note: Regex for names is notoriously difficult and prone to false positives,
- * so we use a pattern that looks for common name structures.
  */
 const PII_REGEX = {
   EMAIL: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
@@ -49,8 +49,6 @@ const PII_REGEX = {
   MAC_ADDRESS: /\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b/g,
   API_KEY: /\b(?:[a-zA-Z0-9]{32,}|[A-Z0-9]{20,})\b/g,
   STREET_ADDRESS: /\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way)\b/gi,
-  // Heuristic for names: Capitalized word followed by 1-2 capitalized words (limited to common contexts)
-  // This is a simplified version and may have false positives.
   NAME_HEURISTIC: /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\b/g,
 };
 
@@ -92,10 +90,8 @@ export default function VaultGate() {
         const mapping: Record<string, string> = {};
         let counter = 1;
 
-        // Iterate through all regex patterns
         Object.entries(PII_REGEX).forEach(([type, regex]) => {
           scrubbed = scrubbed.replace(regex, (match) => {
-            // Avoid re-scrubbing already replaced placeholders
             if (match.startsWith('[') && match.endsWith(']')) return match;
             
             const placeholder = `[${type}_${counter++}]`;
@@ -108,7 +104,7 @@ export default function VaultGate() {
         setSafeView(scrubbed);
       } catch (err) {
         console.error(err);
-        setError('Security Protocol Error: Scrubbing operation failed.');
+        setError('Something went wrong while cleaning your text. Please try again.');
       } finally {
         setIsProcessing(false);
       }
@@ -116,7 +112,7 @@ export default function VaultGate() {
   }, [rawInput]);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(safeView);
+    navigator.clipboard.writeText(showOriginal ? rawInput : safeView);
     setCopySuccess(true);
     setTimeout(() => setCopySuccess(false), 2000);
   };
@@ -124,100 +120,123 @@ export default function VaultGate() {
   return (
     <div className="w-full max-w-6xl mx-auto p-4 md:p-6 font-sans">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-neon-green/10 rounded border border-neon-green/30">
-            <Shield className="w-6 h-6 text-neon-green" />
+          <div className="p-2 bg-neon-green/10 rounded-lg border border-neon-green/30 shadow-[0_0_15px_rgba(57,255,20,0.1)]">
+            <Shield className="w-8 h-8 text-neon-green" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-white">VAULT<span className="text-neon-green">GATE</span></h1>
-            <p className="text-[10px] text-silver/40 font-mono uppercase tracking-widest">Local-First PII Scrubber</p>
+            <h1 className="text-2xl font-bold tracking-tight text-white">Vault<span className="text-neon-green">Gate</span></h1>
+            <p className="text-sm text-silver/60">Private & Secure Text Cleaner</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10">
-          <div className="w-2 h-2 bg-neon-green rounded-full animate-pulse" />
-          <span className="text-[10px] font-mono text-neon-green/80">OFFLINE ENGINE ACTIVE</span>
+        <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
+          <UserCheck className="w-4 h-4 text-neon-green" />
+          <span className="text-xs font-medium text-neon-green/90 uppercase tracking-wide">100% Private • No Data Leaves Your Device</span>
         </div>
       </div>
 
+      {/* Intro */}
+      <div className="mb-8 p-4 bg-white/5 rounded-xl border border-white/10">
+        <p className="text-sm text-silver/80 leading-relaxed">
+          Paste your text below to automatically remove sensitive information like names, emails, and phone numbers. 
+          Everything happens <span className="text-neon-green font-semibold">locally in your browser</span>—your data is never sent to any server.
+        </p>
+      </div>
+
       {/* Main Dashboard */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Raw Input */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Left: Input */}
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold text-silver/60 uppercase flex items-center gap-2">
-              <Terminal className="w-3 h-3" />
-              Raw Input Terminal
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-sm font-bold text-white uppercase flex items-center gap-2">
+              <FileText className="w-4 h-4 text-neon-green" />
+              Step 1: Paste Your Text
             </h2>
-            <span className="text-[10px] text-silver/30 font-mono">SECURE LOCAL BUFFER</span>
           </div>
           <div className="relative group">
             <textarea
-              className="w-full h-[400px] bg-black/60 border border-white/10 rounded-xl p-5 text-sm font-mono text-silver focus:outline-none focus:border-neon-green/50 transition-all resize-none shadow-inner"
-              placeholder="Paste sensitive data here..."
+              className="w-full h-[450px] bg-black/60 border border-white/10 rounded-2xl p-6 text-base font-sans text-silver focus:outline-none focus:border-neon-green/50 transition-all resize-none shadow-2xl"
+              placeholder="Paste your sensitive email, log, or document here..."
               value={rawInput}
               onChange={(e) => setRawInput(sanitizeInput(e.target.value))}
             />
-            <div className="absolute bottom-4 right-4">
+            <div className="absolute bottom-6 right-6">
               <button
                 onClick={executeScrub}
                 disabled={isProcessing || !rawInput.trim()}
-                className="flex items-center gap-2 px-6 py-2.5 bg-neon-green text-black font-bold rounded-lg hover:bg-neon-green/90 disabled:opacity-50 transition-all active:scale-95 shadow-lg shadow-neon-green/20"
+                className="flex items-center gap-2 px-8 py-3 bg-neon-green text-black font-bold rounded-xl hover:bg-neon-green/90 disabled:opacity-50 transition-all active:scale-95 shadow-[0_0_20px_rgba(57,255,20,0.3)]"
               >
-                {isProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                EXECUTE SCRUB
+                {isProcessing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                Clean My Text
               </button>
             </div>
           </div>
         </div>
 
-        {/* Right: Safe View */}
+        {/* Right: Output */}
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-bold text-silver/60 uppercase flex items-center gap-2">
-              <Lock className="w-3 h-3 text-neon-green" />
-              Safe View Output
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-sm font-bold text-white uppercase flex items-center gap-2">
+              <Lock className="w-4 h-4 text-neon-green" />
+              Step 2: Your Cleaned Version
             </h2>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowOriginal(!showOriginal)}
-                className="p-1.5 hover:bg-white/5 rounded transition-colors text-silver/40 hover:text-white"
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all text-xs font-medium border ${
+                  showOriginal 
+                    ? 'bg-neon-green/10 border-neon-green text-neon-green' 
+                    : 'bg-white/5 border-white/10 text-silver/60 hover:text-white hover:bg-white/10'
+                }`}
+                title={showOriginal ? "Show Cleaned" : "Show Original"}
               >
                 {showOriginal ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showOriginal ? "Viewing Original" : "View Original"}
               </button>
               <button
                 onClick={handleCopy}
-                className="p-1.5 hover:bg-white/5 rounded transition-colors text-silver/40 hover:text-white"
+                disabled={!safeView}
+                className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg transition-all text-xs font-medium text-silver/60 hover:text-white hover:bg-white/10 disabled:opacity-30"
               >
                 {copySuccess ? <CheckCircle2 className="w-4 h-4 text-neon-green" /> : <Copy className="w-4 h-4" />}
+                Copy
               </button>
             </div>
           </div>
-          <div className="w-full h-[400px] bg-black/40 border border-white/10 rounded-xl p-5 text-sm font-mono text-silver overflow-auto relative">
+          <div className="relative w-full h-[450px]">
             <AnimatePresence mode="wait">
               {isProcessing ? (
                 <motion.div 
+                  key="processing"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="flex flex-col items-center justify-center h-full gap-4"
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm rounded-2xl border border-white/10 gap-4"
                 >
-                  <Cpu className="w-8 h-8 text-neon-green animate-pulse" />
-                  <p className="text-xs text-neon-green/60 animate-pulse">RUNNING HEURISTIC ANALYSIS...</p>
+                  <Cpu className="w-12 h-12 text-neon-green animate-pulse" />
+                  <p className="text-sm font-medium text-neon-green animate-pulse uppercase tracking-widest">Cleaning in progress...</p>
                 </motion.div>
-              ) : safeView ? (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="whitespace-pre-wrap"
-                >
-                  {showOriginal ? rawInput : safeView}
-                </motion.div>
-              ) : (
-                <div className="flex items-center justify-center h-full text-silver/20 italic">
-                  Awaiting input for local processing...
-                </div>
-              )}
+              ) : null}
             </AnimatePresence>
+            
+            <textarea
+              className={`w-full h-full bg-black/40 border border-white/10 rounded-2xl p-6 text-base font-sans transition-all resize-none shadow-2xl focus:outline-none focus:border-neon-green/30 ${
+                showOriginal ? 'text-silver/40 italic select-none pointer-events-none' : 'text-silver'
+              }`}
+              placeholder="Your cleaned text will appear here..."
+              value={showOriginal ? rawInput : safeView}
+              onChange={(e) => !showOriginal && setSafeView(e.target.value)}
+              readOnly={showOriginal}
+            />
+            
+            {!showOriginal && safeView && (
+              <div className="absolute top-4 right-4 pointer-events-none">
+                <span className="px-2 py-1 bg-neon-green/10 text-[10px] font-bold text-neon-green/60 uppercase rounded border border-neon-green/20">
+                  Editable
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -229,7 +248,7 @@ export default function VaultGate() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3 text-red-400 text-sm"
+            className="mt-8 p-4 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center gap-3 text-red-400 text-sm shadow-lg"
           >
             <AlertTriangle className="w-5 h-5 shrink-0" />
             {error}
@@ -238,34 +257,45 @@ export default function VaultGate() {
       </AnimatePresence>
 
       {/* Security Footer */}
-      <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="p-5 bg-white/5 border border-white/10 rounded-xl">
-          <div className="flex items-center gap-2 mb-2">
-            <Shield className="w-4 h-4 text-neon-green" />
-            <h3 className="text-[10px] font-bold text-white uppercase tracking-wider">Robust Regex Engine</h3>
+      <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="p-6 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/[0.07] transition-all">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-neon-green/10 rounded-lg">
+              <Shield className="w-5 h-5 text-neon-green" />
+            </div>
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Smart Cleaning</h3>
           </div>
-          <p className="text-[10px] text-silver/40 leading-relaxed">
-            Multi-pattern detection for Emails, Phones, IPs, SSNs, Addresses, and more.
+          <p className="text-xs text-silver/50 leading-relaxed">
+            Automatically finds and removes emails, phone numbers, addresses, and more using advanced pattern matching.
           </p>
         </div>
-        <div className="p-5 bg-white/5 border border-white/10 rounded-xl">
-          <div className="flex items-center gap-2 mb-2">
-            <Database className="w-4 h-4 text-neon-green" />
-            <h3 className="text-[10px] font-bold text-white uppercase tracking-wider">Heuristic Analysis</h3>
+        <div className="p-6 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/[0.07] transition-all">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-neon-green/10 rounded-lg">
+              <Database className="w-5 h-5 text-neon-green" />
+            </div>
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">No Server Needed</h3>
           </div>
-          <p className="text-[10px] text-silver/40 leading-relaxed">
-            Smart pattern matching for Names and contextual identifiers without external API calls.
+          <p className="text-xs text-silver/50 leading-relaxed">
+            Unlike other tools, we don't send your data to the cloud. All the cleaning happens right here on your computer.
           </p>
         </div>
-        <div className="p-5 bg-white/5 border border-white/10 rounded-xl">
-          <div className="flex items-center gap-2 mb-2">
-            <Lock className="w-4 h-4 text-neon-green" />
-            <h3 className="text-[10px] font-bold text-white uppercase tracking-wider">100% Local Privacy</h3>
+        <div className="p-6 bg-white/5 border border-white/10 rounded-2xl hover:bg-white/[0.07] transition-all">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-neon-green/10 rounded-lg">
+              <Lock className="w-5 h-5 text-neon-green" />
+            </div>
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Total Privacy</h3>
           </div>
-          <p className="text-[10px] text-silver/40 leading-relaxed">
-            Zero data leaves your browser. All processing happens locally on your device.
+          <p className="text-xs text-silver/50 leading-relaxed">
+            Your sensitive data never touches our servers. Once you close this tab, everything is gone forever.
           </p>
         </div>
+      </div>
+
+      {/* Mobile Optimization Hint */}
+      <div className="mt-12 text-[10px] font-mono text-silver/20 text-center uppercase tracking-[0.2em]">
+        VaultGate Secure Node • Version 1.1.0
       </div>
     </div>
   );
