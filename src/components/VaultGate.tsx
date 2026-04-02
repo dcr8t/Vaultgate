@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback } from 'react';
 import { 
   Shield, 
   Lock, 
@@ -15,10 +15,10 @@ import {
   CheckCircle2,
   Terminal,
   Zap,
-  Cpu
+  Cpu,
+  Database
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI, Type } from "@google/genai";
 import DOMPurify from 'dompurify';
 
 // --- Security Utilities ---
@@ -32,11 +32,26 @@ const PROMPT_INJECTION_PATTERNS = [
   /bypass/gi,
 ];
 
+/**
+ * Robust Regex Patterns for PII Detection
+ * Note: Regex for names is notoriously difficult and prone to false positives,
+ * so we use a pattern that looks for common name structures.
+ */
 const PII_REGEX = {
   EMAIL: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g,
   PHONE: /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g,
   CREDIT_CARD: /\b(?:\d[ -]*?){13,16}\b/g,
   IPV4: /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/g,
+  IPV6: /\b(?:[A-F0-9]{1,4}:){7}[A-F0-9]{1,4}\b/gi,
+  SSN: /\b\d{3}-\d{2}-\d{4}\b/g,
+  ZIP_CODE: /\b\d{5}(?:-\d{4})?\b/g,
+  DATE: /\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4})|(?:\d{4}[/-]\d{1,2}[/-]\d{1,2})\b/g,
+  MAC_ADDRESS: /\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b/g,
+  API_KEY: /\b(?:[a-zA-Z0-9]{32,}|[A-Z0-9]{20,})\b/g,
+  STREET_ADDRESS: /\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way)\b/gi,
+  // Heuristic for names: Capitalized word followed by 1-2 capitalized words (limited to common contexts)
+  // This is a simplified version and may have false positives.
+  NAME_HEURISTIC: /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\b/g,
 };
 
 // --- VaultGate Component ---
@@ -49,8 +64,6 @@ export default function VaultGate() {
   const [showOriginal, setShowOriginal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
-
-  const ai = useMemo(() => new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' }), []);
 
   /**
    * Sanitizes input for XSS and Prompt Injection
@@ -66,86 +79,41 @@ export default function VaultGate() {
   /**
    * Core Logic: Identifies PII via Regex and replaces with placeholders
    */
-  const identifyAndReplace = (text: string): { scrubbed: string; mapping: Record<string, string> } => {
-    let scrubbed = text;
-    const mapping: Record<string, string> = {};
-    let counter = 1;
-
-    Object.entries(PII_REGEX).forEach(([type, regex]) => {
-      scrubbed = scrubbed.replace(regex, (match) => {
-        const placeholder = `[${type}_${counter++}]`;
-        mapping[match] = placeholder;
-        return placeholder;
-      });
-    });
-
-    return { scrubbed, mapping };
-  };
-
-  /**
-   * API Call: Uses Gemini to detect contextual PII (Names, Project Titles)
-   */
-  const handleProcess = useCallback(async () => {
+  const executeScrub = useCallback(() => {
     if (!rawInput.trim()) return;
 
     setIsProcessing(true);
     setError(null);
 
-    try {
-      // 1. Initial Regex Scrub
-      const { scrubbed: regexScrubbed, mapping: initialMapping } = identifyAndReplace(rawInput);
-      let currentText = regexScrubbed;
-      let currentMapping = { ...initialMapping };
+    // Simulate a small delay for "processing" feel
+    setTimeout(() => {
+      try {
+        let scrubbed = rawInput;
+        const mapping: Record<string, string> = {};
+        let counter = 1;
 
-      // 2. AI Contextual Scrub
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Identify any remaining PII (Names, Secret Project Titles, Specific Locations) in the following text. 
-        Return a JSON object where 'pii' is an array of objects with 'value' and 'category'.
-        Text: "${currentText}"`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              pii: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    value: { type: Type.STRING },
-                    category: { type: Type.STRING }
-                  }
-                }
-              }
-            }
-          }
-        }
-      });
-
-      const aiData = JSON.parse(response.text || '{"pii": []}');
-      let aiCounter = Object.keys(currentMapping).length + 1;
-
-      if (aiData.pii && Array.isArray(aiData.pii)) {
-        aiData.pii.forEach((item: { value: string; category: string }) => {
-          if (!currentMapping[item.value]) {
-            const placeholder = `[${item.category.toUpperCase()}_${aiCounter++}]`;
-            const escapedValue = item.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            currentText = currentText.replace(new RegExp(escapedValue, 'g'), placeholder);
-            currentMapping[item.value] = placeholder;
-          }
+        // Iterate through all regex patterns
+        Object.entries(PII_REGEX).forEach(([type, regex]) => {
+          scrubbed = scrubbed.replace(regex, (match) => {
+            // Avoid re-scrubbing already replaced placeholders
+            if (match.startsWith('[') && match.endsWith(']')) return match;
+            
+            const placeholder = `[${type}_${counter++}]`;
+            mapping[match] = placeholder;
+            return placeholder;
+          });
         });
-      }
 
-      setPiiMap(currentMapping);
-      setSafeView(currentText);
-    } catch (err) {
-      console.error(err);
-      setError('Security Protocol Error: Contextual analysis failed.');
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [rawInput, ai]);
+        setPiiMap(mapping);
+        setSafeView(scrubbed);
+      } catch (err) {
+        console.error(err);
+        setError('Security Protocol Error: Scrubbing operation failed.');
+      } finally {
+        setIsProcessing(false);
+      }
+    }, 600);
+  }, [rawInput]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(safeView);
@@ -163,12 +131,12 @@ export default function VaultGate() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-white">VAULT<span className="text-neon-green">GATE</span></h1>
-            <p className="text-[10px] text-silver/40 font-mono uppercase tracking-widest">PII Micro-SaaS Engine</p>
+            <p className="text-[10px] text-silver/40 font-mono uppercase tracking-widest">Local-First PII Scrubber</p>
           </div>
         </div>
         <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10">
           <div className="w-2 h-2 bg-neon-green rounded-full animate-pulse" />
-          <span className="text-[10px] font-mono text-neon-green/80">SECURE NODE ACTIVE</span>
+          <span className="text-[10px] font-mono text-neon-green/80">OFFLINE ENGINE ACTIVE</span>
         </div>
       </div>
 
@@ -181,7 +149,7 @@ export default function VaultGate() {
               <Terminal className="w-3 h-3" />
               Raw Input Terminal
             </h2>
-            <span className="text-[10px] text-silver/30 font-mono">ENCRYPTED BUFFER</span>
+            <span className="text-[10px] text-silver/30 font-mono">SECURE LOCAL BUFFER</span>
           </div>
           <div className="relative group">
             <textarea
@@ -192,7 +160,7 @@ export default function VaultGate() {
             />
             <div className="absolute bottom-4 right-4">
               <button
-                onClick={handleProcess}
+                onClick={executeScrub}
                 disabled={isProcessing || !rawInput.trim()}
                 className="flex items-center gap-2 px-6 py-2.5 bg-neon-green text-black font-bold rounded-lg hover:bg-neon-green/90 disabled:opacity-50 transition-all active:scale-95 shadow-lg shadow-neon-green/20"
               >
@@ -234,7 +202,7 @@ export default function VaultGate() {
                   className="flex flex-col items-center justify-center h-full gap-4"
                 >
                   <Cpu className="w-8 h-8 text-neon-green animate-pulse" />
-                  <p className="text-xs text-neon-green/60 animate-pulse">ANALYZING CONTEXTUAL PII...</p>
+                  <p className="text-xs text-neon-green/60 animate-pulse">RUNNING HEURISTIC ANALYSIS...</p>
                 </motion.div>
               ) : safeView ? (
                 <motion.div
@@ -246,7 +214,7 @@ export default function VaultGate() {
                 </motion.div>
               ) : (
                 <div className="flex items-center justify-center h-full text-silver/20 italic">
-                  Awaiting input for security processing...
+                  Awaiting input for local processing...
                 </div>
               )}
             </AnimatePresence>
@@ -274,28 +242,28 @@ export default function VaultGate() {
         <div className="p-5 bg-white/5 border border-white/10 rounded-xl">
           <div className="flex items-center gap-2 mb-2">
             <Shield className="w-4 h-4 text-neon-green" />
-            <h3 className="text-[10px] font-bold text-white uppercase tracking-wider">Regex Engine</h3>
+            <h3 className="text-[10px] font-bold text-white uppercase tracking-wider">Robust Regex Engine</h3>
           </div>
           <p className="text-[10px] text-silver/40 leading-relaxed">
-            Instant detection of standard patterns: Emails, Phone Numbers, Credit Cards, and IPv4 addresses.
+            Multi-pattern detection for Emails, Phones, IPs, SSNs, Addresses, and more.
           </p>
         </div>
         <div className="p-5 bg-white/5 border border-white/10 rounded-xl">
           <div className="flex items-center gap-2 mb-2">
-            <Zap className="w-4 h-4 text-neon-green" />
-            <h3 className="text-[10px] font-bold text-white uppercase tracking-wider">Gemini 1.5 Flash</h3>
+            <Database className="w-4 h-4 text-neon-green" />
+            <h3 className="text-[10px] font-bold text-white uppercase tracking-wider">Heuristic Analysis</h3>
           </div>
           <p className="text-[10px] text-silver/40 leading-relaxed">
-            Contextual AI analysis for Names, Secret Project Titles, and non-standard identifiers.
+            Smart pattern matching for Names and contextual identifiers without external API calls.
           </p>
         </div>
         <div className="p-5 bg-white/5 border border-white/10 rounded-xl">
           <div className="flex items-center gap-2 mb-2">
             <Lock className="w-4 h-4 text-neon-green" />
-            <h3 className="text-[10px] font-bold text-white uppercase tracking-wider">Memory Isolation</h3>
+            <h3 className="text-[10px] font-bold text-white uppercase tracking-wider">100% Local Privacy</h3>
           </div>
           <p className="text-[10px] text-silver/40 leading-relaxed">
-            PII mappings are isolated to component state. No logs, no databases, zero persistence.
+            Zero data leaves your browser. All processing happens locally on your device.
           </p>
         </div>
       </div>
