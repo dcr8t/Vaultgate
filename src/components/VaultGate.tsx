@@ -47,7 +47,9 @@ const PII_REGEX = {
   ZIP_CODE: /\b\d{5}(?:-\d{4})?\b/g,
   DATE: /\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4})|(?:\d{4}[/-]\d{1,2}[/-]\d{1,2})\b/g,
   MAC_ADDRESS: /\b(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})\b/g,
-  API_KEY: /\b(?:[a-zA-Z0-9]{32,}|[A-Z0-9]{20,})\b/g,
+  API_KEY: /\b(?:[a-zA-Z0-9-_]{32,}|(?:sk|pk|ak|sec|key|token|access|secret|auth)[_-][a-zA-Z0-9]{8,}|[a-zA-Z0-9]{20,})\b/gi,
+  GENERIC_SECRET: /\b[a-zA-Z0-9+/=]{24,}\b/g,
+  SECRET_ASSIGNMENT: /\b(?:password|secret|token|api_key|apikey|auth_token)\s*[:=]\s*[^\s]{4,}\b/gi,
   STREET_ADDRESS: /\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way)\b/gi,
   NAME_HEURISTIC: /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\b/g,
 };
