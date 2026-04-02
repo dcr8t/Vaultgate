@@ -1,0 +1,5 @@
+{
+  "name": "VaultGate",
+  "description": "Production-ready, security-first PII Scrubber Micro-SaaS powered by Gemini AI.",
+  "requestFramePermissions": []
+}
